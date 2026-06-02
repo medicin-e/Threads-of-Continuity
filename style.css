@@ -1,67 +1,247 @@
+/* =========================================================
+   PROJECT TERMINAL THEME
+   ========================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+:root {
+    --bg: #0f1115;
+    --panel: #151922;
+    --text: #c8d0d8;
+    --muted: #8f99a3;
+    --accent: #7fa4c7;
+    --accent-hover: #9bb7d4;
+    --border: #2d3742;
+    --header: #dbe5ee;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
 body {
     margin: 0;
-    font-family: Arial, sans-serif;
-    background: #f4f4f4;
-    color: #222;
-    line-height: 1.6;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "IBM Plex Sans", sans-serif;
+    line-height: 1.7;
 }
+
+/* =========================================================
+   HEADER
+   ========================================================= */
 
 header {
-    background: #222;
-    color: white;
-    padding: 3rem 1rem;
+    border-bottom: 1px solid var(--border);
+    padding: 4rem 2rem;
     text-align: center;
+    background: linear-gradient(
+        to bottom,
+        #11151d,
+        #0f1115
+    );
 }
 
+header h1 {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 3rem;
+    letter-spacing: 0.15em;
+    margin-bottom: 0.5rem;
+    color: var(--header);
+    text-transform: uppercase;
+}
+
+header p {
+    color: var(--muted);
+    max-width: 700px;
+    margin: 0 auto;
+}
+
+/* =========================================================
+   STATUS BAR
+   ========================================================= */
+
+.status {
+    margin-top: 2rem;
+    font-family: "IBM Plex Mono", monospace;
+    color: var(--accent);
+    font-size: 0.9rem;
+}
+
+.status span {
+    color: var(--header);
+}
+
+/* =========================================================
+   NAVIGATION
+   ========================================================= */
+
 nav {
-    background: #333;
+    position: sticky;
+    top: 0;
+    background: rgba(15, 17, 21, 0.95);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--border);
     text-align: center;
     padding: 1rem;
+    z-index: 100;
 }
 
 nav a {
-    color: white;
+    font-family: "IBM Plex Mono", monospace;
+    text-transform: uppercase;
+    color: var(--muted);
     text-decoration: none;
     margin: 0 1rem;
+    letter-spacing: 0.08em;
 }
 
 nav a:hover {
-    text-decoration: underline;
+    color: var(--accent);
 }
+
+/* =========================================================
+   MAIN CONTENT
+   ========================================================= */
 
 main {
     max-width: 900px;
     margin: auto;
-    padding: 2rem;
+    padding: 3rem 2rem;
 }
 
 section {
-    margin-bottom: 3rem;
+    margin-bottom: 5rem;
 }
 
-.card {
-    background: white;
-    padding: 1rem;
-    margin-bottom: 1rem;
-    border-radius: 8px;
+section h2 {
+    font-family: "IBM Plex Mono", monospace;
+    text-transform: uppercase;
+    color: var(--header);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.75rem;
+    margin-bottom: 1.5rem;
+    letter-spacing: 0.1em;
 }
+
+/* =========================================================
+   REPORT PANELS
+   ========================================================= */
+
+.card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.card h3 {
+    margin-top: 0;
+    font-family: "IBM Plex Mono", monospace;
+    color: var(--accent);
+}
+
+/* =========================================================
+   LINKS
+   ========================================================= */
+
+a {
+    color: var(--accent);
+}
+
+a:hover {
+    color: var(--accent-hover);
+}
+
+/* =========================================================
+   BUTTONS
+   ========================================================= */
 
 .button {
     display: inline-block;
-    background: #222;
-    color: white;
+    margin-top: 0.5rem;
+    padding: 0.75rem 1.25rem;
+
+    background: transparent;
+    color: var(--accent);
+
+    border: 1px solid var(--accent);
+
     text-decoration: none;
-    padding: 0.75rem 1rem;
-    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+
+    font-family: "IBM Plex Mono", monospace;
+
+    transition: all 0.15s ease;
 }
 
 .button:hover {
-    opacity: 0.85;
+    background: var(--accent);
+    color: var(--bg);
 }
 
-footer {
-    background: #222;
-    color: white;
-    text-align: center;
+/* =========================================================
+   TERMINAL CALLOUTS
+   ========================================================= */
+
+.callout {
+    border-left: 3px solid var(--accent);
+    padding-left: 1rem;
+    color: var(--muted);
+    margin: 1.5rem 0;
+}
+
+.codeblock {
+    background: #0a0c10;
+    border: 1px solid var(--border);
     padding: 1rem;
+    font-family: "IBM Plex Mono", monospace;
+    overflow-x: auto;
+    color: var(--accent);
+}
+
+/* =========================================================
+   FOOTER
+   ========================================================= */
+
+footer {
+    border-top: 1px solid var(--border);
+    margin-top: 4rem;
+    padding: 2rem;
+    text-align: center;
+    color: var(--muted);
+
+    font-family: "IBM Plex Mono", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.footer-status {
+    margin-top: 1rem;
+    color: var(--accent);
+}
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 700px) {
+
+    header h1 {
+        font-size: 2rem;
+    }
+
+    nav a {
+        display: inline-block;
+        margin: 0.4rem;
+    }
+
+    main {
+        padding: 2rem 1rem;
+    }
 }
