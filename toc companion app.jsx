@@ -47,7 +47,7 @@ const PHASE_DESCRIPTIONS = {
   Merging: "Buy PNs, trade, form alliances, exchange resources.",
   Weaving: "Choose 3 actions. Attempt to weave a Tapestry of Reality.",
   Reconciliation: "Resolve penalties: DR→QR conversion, unstable timeline checks.",
-  Ending: "Verify resources. Optional hand discard. Update inflation tracker.",
+  Ending: "Verify resources and update inflation tracker.",
 };
 
 // Each action: cost = resources deducted from self, effect = applied to self
@@ -278,10 +278,12 @@ export default function App() {
     // Track spending (negative delta) for coefficient and inflation calculations
     if (delta < 0) {
       setState(s => {
+        const player = s.players.find(p => p.id === pid);
+        const actualSpent = Math.min(Math.abs(delta), player?.[res] ?? 0);
         const prev = s.prevResourceUsage || {};
         return {
           ...s,
-          prevResourceUsage: { ...prev, [res]: (prev[res]||0) + Math.abs(delta) },
+          prevResourceUsage: { ...prev, [res]: (prev[res]||0) + actualSpent },
           players: s.players.map(p =>
             p.id === pid ? { ...p, [res]: Math.max(0, (p[res] ?? 0) + delta) } : p
           ),
@@ -326,6 +328,7 @@ export default function App() {
 
   // ── RECONCILIATION ──
   function doReconciliation(pid) {
+    if (state.reconciliationDone) return;
     const p = state.players.find(x => x.id === pid);
     if (!p) return;
     let msgs = [];
@@ -348,7 +351,7 @@ export default function App() {
       patch.QR = newQR - 5;
       patch.ToC = Math.max(0, p.ToC - 5);
       patch.skipNextTurn = true;
-      msgs.push("⚠ UNSTABLE TIMELINE: Skip next turn, lose 5 QR, lose 5 ToC, discard hand.");
+      msgs.push("⚠ UNSTABLE TIMELINE: Skip next turn, lose 5 QR, lose 5 ToC.");
     }
 
     // DR chaos rolls (automatic) — separate from voluntary QR ECE action
@@ -462,9 +465,12 @@ export default function App() {
     let msgs = [];
     let socialNotes = [];
     let eceTriggered = false;
+    let totalSpent = {};
 
     for (const a of actions) {
       const effectiveCost = resolveActionCost(a);
+      // Track spending
+      Object.entries(effectiveCost).forEach(([r, amt]) => { totalSpent[r] = (totalSpent[r] || 0) + amt; });
       // Deduct costs (using GRCP-resolved cost)
       for (const [res, amt] of Object.entries(effectiveCost)) {
         patch[res] = Math.max(0, (patch[res] ?? p[res] ?? 0) - amt);
@@ -493,12 +499,18 @@ export default function App() {
       if (!a.rollForExtra) msgs.push(a.label);
     }
 
-    setState(s => ({
-      ...s,
-      players: s.players.map(px => px.id === pid ? { ...px, ...patch } : px),
-      rc: Math.max(0, s.rc + rcDelta),
-      ecePending: s.ecePending || eceTriggered,
-    }));
+    setState(s => {
+      const prev = s.prevResourceUsage || {};
+      const updatedUsage = { ...prev };
+      Object.entries(totalSpent).forEach(([r, a]) => { updatedUsage[r] = (updatedUsage[r] || 0) + a; });
+      return {
+        ...s,
+        prevResourceUsage: updatedUsage,
+        players: s.players.map(px => px.id === pid ? { ...px, ...patch } : px),
+        rc: Math.max(0, s.rc + rcDelta),
+        ecePending: s.ecePending || eceTriggered,
+      };
+    });
     setActionsApplied(true);
     if (eceTriggered) {
       log("⚠ ECE triggered via action! Go to the Reconciliation phase to resolve it.", "event");
@@ -520,6 +532,9 @@ export default function App() {
     if (success) {
       const newTor = p.tor + 1;
       setState(s => {
+        const prev = s.prevResourceUsage || {};
+        const updatedUsage = { ...prev };
+        ["ToC","TB","SN"].forEach(r => { if (inputs[r]) updatedUsage[r] = (updatedUsage[r] || 0) + inputs[r]; });
         const players = s.players.map(px =>
           px.id === pid ? {
             ...px,
@@ -530,22 +545,28 @@ export default function App() {
           } : px
         );
         const winner = newTor >= 3 ? pid : null;
-        return { ...s, players, rc: s.rc - 2, winner, winType: winner ? 'tor' : s.winType };
+        return { ...s, prevResourceUsage: updatedUsage, players, rc: s.rc - 2, winner, winType: winner ? 'tor' : s.winType };
       });
       log(`✦ ${p.name} rolled ${roll} ≤ ${pt.toFixed(0)}% — WEAVE SUCCEEDED! ToR: ${p.tor + 1}/3. RC -2.`, "win");
     } else {
-      setState(s => ({
-        ...s,
-        players: s.players.map(px =>
-          px.id === pid ? {
-            ...px,
-            ToC: Math.max(0, px.ToC - (inputs.ToC ?? 0)),
-            TB: Math.max(0, px.TB - (inputs.TB ?? 0)),
-            SN: Math.max(0, px.SN - (inputs.SN ?? 0)),
-          } : px
-        ),
-        rc: s.rc + 1,
-      }));
+      setState(s => {
+        const prev = s.prevResourceUsage || {};
+        const updatedUsage = { ...prev };
+        ["ToC","TB","SN"].forEach(r => { if (inputs[r]) updatedUsage[r] = (updatedUsage[r] || 0) + inputs[r]; });
+        return {
+          ...s,
+          prevResourceUsage: updatedUsage,
+          players: s.players.map(px =>
+            px.id === pid ? {
+              ...px,
+              ToC: Math.max(0, px.ToC - (inputs.ToC ?? 0)),
+              TB: Math.max(0, px.TB - (inputs.TB ?? 0)),
+              SN: Math.max(0, px.SN - (inputs.SN ?? 0)),
+            } : px
+          ),
+          rc: s.rc + 1,
+        };
+      });
       log(`${p.name} rolled ${roll} > ${pt.toFixed(0)}% — weave FAILED. Resources lost. RC +1.`, "weave");
     }
     setState(s => ({ ...s, weavingCalc: null }));
@@ -568,29 +589,152 @@ export default function App() {
       if ((p[res] || 0) < amt) { canAfford = false; break; }
     }
     if (!canAfford) { log(`${p.name} cannot afford a ${pnBuyType} Node.`, "event"); return; }
-    setState(s => ({
-      ...s,
-      players: s.players.map(px => {
-        if (px.id !== pid) return px;
-        let updated = { ...px, pns: [...px.pns, { type: pnBuyType, level: 1 }] };
-        for (const [res, amt] of Object.entries(cost)) updated[res] = Math.max(0, updated[res] - amt);
-        return updated;
-      }),
-    }));
+    setState(s => {
+      const prev = s.prevResourceUsage || {};
+      const updatedUsage = { ...prev };
+      Object.entries(cost).forEach(([r, a]) => { updatedUsage[r] = (updatedUsage[r] || 0) + a; });
+      return {
+        ...s,
+        prevResourceUsage: updatedUsage,
+        players: s.players.map(px => {
+          if (px.id !== pid) return px;
+          let updated = { ...px, pns: [...px.pns, { type: pnBuyType, level: 1 }] };
+          for (const [res, amt] of Object.entries(cost)) updated[res] = Math.max(0, updated[res] - amt);
+          return updated;
+        }),
+      };
+    });
     log(`${p.name} purchased a ${pnBuyType} Production Node.`, "info");
   }
 
   // ── SKIP TURN FOR QR REDUCTION ──
-  function skipTurnForQR(pid) {
-    setState(s => ({
-      ...s,
-      players: s.players.map(p =>
-        p.id === pid ? { ...p, QR: Math.max(0, p.QR - 10), skipNextTurn: true } : p
-      ),
-    }));
-    log(`${state.players.find(p => p.id === pid)?.name} skipped their turn: -10 QR.`, "info");
+  
+function resetTransientTurnUi() {
+    setActionsSelected([]);
+    setActionsApplied(false);
+    setWeavingMode(null);
+    setRcAdjust(0);
+    setWeavingInputs({ ToC: 0, TB: 0, SN: 0 });
   }
 
+  function buildRoundStartState(s) {
+    const newRound = s.round + 1;
+    const newRC = s.rc + (newRound * newRound) + rcAdjust;
+    const baseCoeffsAuto = { alpha: 1.2, beta: 1.05, gamma: 1.0, delta: 1.1, epsilon: 1.0 };
+    const coeffMap = [["alpha","TB"],["beta","SN"],["gamma","ToC"],["delta","DR"],["epsilon","QR"]];
+    const autoUsage = s.prevResourceUsage || {};
+    let autoPossible = s.prevPossibleUsage || {};
+    const possibleHasData = Object.values(autoPossible).some(v => v > 0);
+    if (!possibleHasData) {
+      autoPossible = {};
+      s.players.forEach(p => {
+        ["ToC","DR","SN","TB","QR"].forEach(r => {
+          autoPossible[r] = (autoPossible[r] || 0) + (p[r] || 0);
+        });
+      });
+    }
+    const newCoeffs = {};
+    coeffMap.forEach(([coeff, res]) => {
+      const used = autoUsage[res] || 0;
+      const possible = autoPossible[res] || 0;
+      const base = baseCoeffsAuto[coeff];
+      if (possible === 0) { newCoeffs[coeff] = base; return; }
+      const pct = used / possible;
+      const sf = Math.pow(pct - 0.6, 2);
+      newCoeffs[coeff] = pct > 0.5 ? Math.max(0.1, base * (1 - sf)) : base * (1 + sf);
+    });
+    // Auto-compute monopoly streak
+    const globalPNProd = s.players.reduce((sum, p) =>
+      sum + (p.pns || []).reduce((s2, pn) => s2 + pn.level, 0), 0);
+    let newMonopolyRounds = s.monopolyRoundsInControl || 0;
+    if (globalPNProd > 0) {
+      const shares = s.players.map(p => ({
+        id: p.id,
+        share: (p.pns || []).reduce((s2, pn) => s2 + pn.level, 0) / globalPNProd * 100,
+      }));
+      const sorted = [...shares].sort((a, b) => b.share - a.share);
+      const leader = sorted[0] || {};
+      const runnerUp = sorted[1] || {};
+      newMonopolyRounds = (leader.share > 50 && leader.share > runnerUp.share) ? newMonopolyRounds + 1 : 0;
+    } else {
+      newMonopolyRounds = 0;
+    }
+
+    return {
+      ...s,
+      round: newRound,
+      rc: newRC,
+      monopolyRoundsInControl: newMonopolyRounds,
+      monopolyLoggedThisRound: true,
+      coefficients: newCoeffs,
+      prevCoefficients: s.coefficients,
+      prevUsagePct: Object.fromEntries(coeffMap.map(([, res]) => {
+        const used = autoUsage[res] || 0;
+        const possible = autoPossible[res] || 0;
+        return [res, possible > 0 ? Math.round((used / possible) * 100) : null];
+      })),
+      currentPhase: 0,
+      diceResult: null,
+      weavingCalc: null,
+      monopolyLoggedThisRound: false,
+      pnCollected: false,
+      diceRolled: false,
+      reconciliationDone: false,
+      roundIntroSeen: false,
+      prevResourceUsage: {},
+    };
+  }
+
+  function advanceToNextTurnState(s) {
+    let working = s;
+    let idx = (s.currentPlayerIdx + 1) % s.numPlayers;
+    if (idx === 0) {
+      working = buildRoundStartState(working);
+    }
+    let guard = 0;
+    while (guard < (working.numPlayers * 2)) {
+      const candidate = working.players[idx];
+      if (!candidate?.skipNextTurn) {
+        return {
+          ...working,
+          currentPlayerIdx: idx,
+          currentPhase: 0,
+          diceResult: null,
+          weavingCalc: null,
+          pnCollected: false,
+          diceRolled: false,
+          reconciliationDone: false,
+        };
+      }
+      working = {
+        ...working,
+        players: working.players.map((p, i) => i === idx ? { ...p, skipNextTurn: false } : p),
+      };
+      idx = (idx + 1) % working.numPlayers;
+      if (idx === 0) {
+        working = buildRoundStartState(working);
+      }
+      guard += 1;
+    }
+    return working;
+  }
+
+  function skipTurnForQR(pid) {
+    const name = state.players.find(p => p.id === pid)?.name || "Player";
+    setState(s => {
+      const player = s.players.find(p => p.id === pid);
+      const actualSpent = Math.min(player?.QR || 0, 10);
+      const updatedPlayers = s.players.map(p =>
+        p.id === pid ? { ...p, QR: Math.max(0, p.QR - 10) } : p
+      );
+      const usage = { ...(s.prevResourceUsage || {}), QR: (s.prevResourceUsage?.QR || 0) + actualSpent };
+      return advanceToNextTurnState({ ...s, players: updatedPlayers, prevResourceUsage: usage });
+    });
+    resetTransientTurnUi();
+    log(`${name} skipped their entire turn and reduced QR by 10.`, "info");
+  }
+
+  // ── UPGRADE PN ──
   // ── UPGRADE PN ──
   function upgradePN(pid, pnIdx) {
     const p = state.players.find(x => x.id === pid);
@@ -602,18 +746,24 @@ export default function App() {
     for (const [res, amt] of Object.entries(cost)) {
       if ((p[res] || 0) < amt) { log(`Cannot afford upgrade: need ${amt} ${res}.`, "event"); return; }
     }
-    setState(s => ({
-      ...s,
-      players: s.players.map(px => {
-        if (px.id !== pid) return px;
-        let updated = {
-          ...px,
-          pns: px.pns.map((n, i) => i === pnIdx ? { ...n, level: n.level + 1 } : n),
-        };
-        for (const [res, amt] of Object.entries(cost)) updated[res] = Math.max(0, updated[res] - amt);
-        return updated;
-      }),
-    }));
+    setState(s => {
+      const prev = s.prevResourceUsage || {};
+      const updatedUsage = { ...prev };
+      Object.entries(cost).forEach(([r, a]) => { updatedUsage[r] = (updatedUsage[r] || 0) + a; });
+      return {
+        ...s,
+        prevResourceUsage: updatedUsage,
+        players: s.players.map(px => {
+          if (px.id !== pid) return px;
+          let updated = {
+            ...px,
+            pns: px.pns.map((n, i) => i === pnIdx ? { ...n, level: n.level + 1 } : n),
+          };
+          for (const [res, amt] of Object.entries(cost)) updated[res] = Math.max(0, updated[res] - amt);
+          return updated;
+        }),
+      };
+    });
     log(`${p.name} upgraded ${pn.type} Node to Level ${pn.level + 1}.`, "info");
   }
 
@@ -628,17 +778,23 @@ export default function App() {
     }
     const roll = rollDie(6);
     const success = roll % 2 === 0;
-    setState(s => ({
-      ...s,
-      players: s.players.map(px => {
-        if (px.id === attackerId) {
-          let u = { ...px };
-          for (const [res, amt] of Object.entries(cost)) u[res] = Math.max(0, u[res] - amt);
-          return u;
-        }
-        return px;
-      }),
-    }));
+    setState(s => {
+      const prev = s.prevResourceUsage || {};
+      const updatedUsage = { ...prev };
+      Object.entries(cost).forEach(([r, a]) => { updatedUsage[r] = (updatedUsage[r] || 0) + a; });
+      return {
+        ...s,
+        prevResourceUsage: updatedUsage,
+        players: s.players.map(px => {
+          if (px.id === attackerId) {
+            let u = { ...px };
+            for (const [res, amt] of Object.entries(cost)) u[res] = Math.max(0, u[res] - amt);
+            return u;
+          }
+          return px;
+        }),
+      };
+    });
     log(`${attacker.name} sabotage roll: ${roll} → ${success ? "SUCCESS! Target PN halved for 1 round. Apply manually." : "FAILED. Cost still paid."}`, success ? "event" : "info");
   }
 
@@ -771,7 +927,7 @@ export default function App() {
     const cost = { DR: 8, TB: 3 };
     if ((p.DR||0) < cost.DR || (p.TB||0) < cost.TB) {
       // Can't afford — ECE proceeds, RC+3
-      setState(s => ({ ...s, rc: Math.min(99, s.rc + 3), anrpPending: false, ecePending: true }));
+      setState(s => ({ ...s, rc: s.rc + 3, anrpPending: false, ecePending: true }));
       log(`${p.name} cannot afford ANRP (need 8 DR + 3 TB). Resources lost attempt. RC +3. ECE still pending.`, "event");
       return;
     }
@@ -791,7 +947,7 @@ export default function App() {
       // Ultimate Chaos Surge — ECE cancelled, RC+5, all lose 25%
       setState(s => ({
         ...s,
-        rc: Math.min(99, s.rc + 5),
+        rc: s.rc + 5,
         anrpPending: false,
         ecePending: false,
         players: s.players.map(px => ({
@@ -814,99 +970,35 @@ export default function App() {
       log(`ANRP PARTIAL MITIGATION (roll ${roll}, 5-7). ECE proceeds but all effects are halved. Resolve it now.`, "event");
     } else {
       // Full cancel
-      setState(s => ({ ...s, rc: Math.min(99, s.rc + 2), anrpPending: false, ecePending: false }));
+      setState(s => ({ ...s, rc: s.rc + 2, anrpPending: false, ecePending: false }));
       log(`ANRP SUCCESS (roll ${roll} ≥ 8)! ECE fully cancelled. RC +2 (cost of rescue).`, "event");
     }
   }
 
   // ── ADVANCE PHASE / TURN ──
-  function nextPhase() {
-    // Auto-snapshot possible usage when leaving Merging phase (for all players collectively)
-    const leavingMerging = PHASES[state.currentPhase] === "Merging";
-    if (leavingMerging) {
-      const totalPossible = { ToC: 0, DR: 0, SN: 0, TB: 0, QR: 0 };
-      state.players.forEach(p => {
-        ["ToC","DR","SN","TB","QR"].forEach(r => { totalPossible[r] = (totalPossible[r]||0) + (p[r]||0); });
-      });
-      setState(s => ({ ...s, prevPossibleUsage: totalPossible }));
-    }
+  
+function nextPhase() {
     setState(s => {
-      if (s.currentPhase < PHASES.length - 1) {
-        return { ...s, currentPhase: s.currentPhase + 1, diceResult: null, weavingCalc: null };
-      } else {
-        // Advance to next player
-        let nextIdx = (s.currentPlayerIdx + 1) % s.numPlayers;
-        let skipped = s.players[nextIdx]?.skipNextTurn;
-        // If all players done: advance round
-        if (nextIdx === 0 && !skipped) {
-          const newRound = s.round + 1;
-          // RC formula: Base RC (= RC from previous round) + R²
-          const newRC = s.rc + (newRound * newRound) + rcAdjust;
-          // Auto-recalculate coefficients for new round using last round's usage data
-          const baseCoeffsAuto = { alpha: 1.2, beta: 1.05, gamma: 1.0, delta: 1.1, epsilon: 1.0 };
-          const coeffMap = [["alpha","TB"],["beta","SN"],["gamma","ToC"],["delta","DR"],["epsilon","QR"]];
-          const autoUsage = s.prevResourceUsage || {};
-          const autoPossible = s.prevPossibleUsage || {};
-          const newCoeffs = {};
-          coeffMap.forEach(([coeff, res]) => {
-            const used = autoUsage[res] || 0;
-            const possible = autoPossible[res] || 0;
-            const base = baseCoeffsAuto[coeff];
-            if (possible === 0) { newCoeffs[coeff] = base; return; }
-            const pct = used / possible;
-            const sf = Math.pow(pct - 0.6, 2);
-            newCoeffs[coeff] = pct > 0.5
-              ? Math.max(0.1, base * (1 - sf))
-              : base * (1 + sf);
+      let working = s;
+      const leavingMerging = PHASES[s.currentPhase] === "Merging";
+      if (leavingMerging) {
+        const totalPossible = { ToC: 0, DR: 0, SN: 0, TB: 0, QR: 0 };
+        working.players.forEach(p => {
+          ["ToC","DR","SN","TB","QR"].forEach(r => {
+            totalPossible[r] = (totalPossible[r] || 0) + (p[r] || 0);
           });
-          return {
-            ...s,
-            currentPlayerIdx: 0,
-            currentPhase: 0,
-            round: newRound,
-            rc: Math.min(newRC, 99),
-            coefficients: newCoeffs,
-            prevCoefficients: s.coefficients,
-            prevUsagePct: Object.fromEntries(coeffMap.map(([, res]) => {
-              const used = autoUsage[res] || 0;
-              const possible = autoPossible[res] || 0;
-              return [res, possible > 0 ? Math.round((used / possible) * 100) : null];
-            })),
-            diceResult: null,
-            weavingCalc: null,
-            monopolyLoggedThisRound: false,
-            pnCollected: false,
-            diceRolled: false,
-            reconciliationDone: false,
-            roundIntroSeen: false,
-            prevResourceUsage: {},
-            players: s.players.map(p => ({ ...p, skipNextTurn: false })),
-          };
-        }
-        // skip turn if needed
-        let newPlayers = s.players.map((p, i) =>
-          i === nextIdx && skipped ? { ...p, skipNextTurn: false } : p
-        );
-        return {
-          ...s,
-          players: newPlayers,
-          currentPlayerIdx: nextIdx,
-          currentPhase: 0,
-          diceResult: null,
-          weavingCalc: null,
-          pnCollected: false,
-          diceRolled: false,
-          reconciliationDone: false,
-        };
+        });
+        working = { ...working, prevPossibleUsage: totalPossible };
       }
+      if (working.currentPhase < PHASES.length - 1) {
+        return { ...working, currentPhase: working.currentPhase + 1, diceResult: null, weavingCalc: null };
+      }
+      return advanceToNextTurnState(working);
     });
-    setActionsSelected([]);
-    setActionsApplied(false);
-    setWeavingMode(null);
-    setRcAdjust(0);
-    setWeavingInputs({ ToC: 0, TB: 0, SN: 0 });
+    resetTransientTurnUi();
   }
 
+  // ── RECALCULATE COEFFICIENTS ──
   // ── RECALCULATE COEFFICIENTS ──
   // Rulebook: Scaling Factor = ((Usage / Possible Usage) - 0.6)^2
   // Coefficient Adjustment = Base Coefficient × (1 ± Scaling Factor)
@@ -991,7 +1083,6 @@ export default function App() {
               ? `${winner?.name} has achieved Dimensional Monopoly — controlling production for 5 consecutive rounds!`
               : `${winner?.name} has woven 3 Tapestries of Reality and escaped the collapsing universe!`}
           </div>
-          <GameSummary gameLog={state.gameLog} players={state.players} round={state.round} winType={state.winType} winner={state.players.find(p => p.id === state.winner)} />
           <button onClick={() => setState(initialState())} style={{ ...styles.btn, marginTop: 24 }}>Play Again</button>
         </div>
       </div>
@@ -1009,7 +1100,6 @@ export default function App() {
           <div style={{ color: "#eee", fontSize: 18, marginBottom: 32 }}>
             The RC reached 100. All players lose — reality has been consumed by chaos.
           </div>
-          <GameSummary gameLog={state.gameLog} players={state.players} round={state.round} winType="collapse" winner={null} />
           <button onClick={() => setState(initialState())} style={{ ...styles.btn, marginTop: 24 }}>Try Again</button>
         </div>
       </div>
@@ -1119,8 +1209,7 @@ export default function App() {
                 rc={state.rc}
                 round={state.round}
                 coefficients={state.coefficients}
-                onRecalc={recalcCoefficients}
-                onSkipTurn={() => { skipTurnForQR(cp?.id); nextPhase(); }}
+                onSkipTurn={() => skipTurnForQR(cp?.id)}
                 playerName={cp?.name}
                 players={state.players}
                 monopolyRoundsInControl={state.monopolyRoundsInControl}
@@ -1129,27 +1218,44 @@ export default function App() {
                 onWinMonopoly={(leaderId) => setState(s => ({ ...s, winner: leaderId, winType: 'monopoly' }))}
               />
             )}
-            {phase === "Preliminary" && state.currentPlayerIdx !== 0 && (
-              <div style={{ background: "#0a0f1a", borderRadius: 8, padding: 14 }}>
-                <div style={{ color: "#64748b", fontSize: 12, marginBottom: 8 }}>Coefficients were calculated at the start of this round:</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {Object.entries(state.coefficients).map(([k, v]) => {
-                    const meta = COEFF_META[k];
-                    return (
-                      <div key={k} style={{ background: "#1a2235", borderRadius: 5, padding: "5px 10px" }}>
-                        <span style={{ color: meta.color, fontWeight: 700, fontSize: 12 }}>{meta.resource} </span>
-                        <span style={{ color: "#94a3b8", fontSize: 12 }}>{v.toFixed(3)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div style={{ color: "#475569", fontSize: 11, marginTop: 8 }}>
-                  RC: <span style={{ color: "#f87171", fontWeight: 700 }}>{state.rc.toFixed(1)}</span> · ToRST: <span style={{ color: "#a78bfa", fontWeight: 700 }}>{calcToRST(state.rc).toFixed(3)}</span>
-                </div>
-              </div>
-            )}
+            
+{phase === "Preliminary" && state.currentPlayerIdx !== 0 && (
+  <div style={{ background: "#0a0f1a", borderRadius: 8, padding: 14 }}>
+    <div style={{ color: "#64748b", fontSize: 12, marginBottom: 8 }}>
+      Coefficients were calculated at the start of this round:
+    </div>
 
-            {phase === "Resource Collection" && (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      {Object.entries(state.coefficients).map(([k, v]) => {
+        const meta = COEFF_META[k];
+        return (
+          <div key={k} style={{ background: "#1a2235", borderRadius: 5, padding: "5px 10px" }}>
+            <span style={{ color: meta.color, fontWeight: 700, fontSize: 12 }}>
+              {meta.resource}
+            </span>{" "}
+            <span style={{ color: "#94a3b8", fontSize: 12 }}>
+              {v.toFixed(3)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+
+    <div style={{ marginTop: 12 }}>
+      <button
+        onClick={() => skipTurnForQR(cp?.id)}
+        style={{
+          ...styles.btnSm,
+          borderColor: "#fbbf24",
+          color: "#fbbf24"
+        }}
+      >
+        Skip Turn → -10 QR
+      </button>
+    </div>
+  </div>
+)}
+{phase === "Resource Collection" && (
               <ResourceCollectionPanel
                 player={cp}
                 diceResult={state.diceResult}
@@ -1203,6 +1309,7 @@ export default function App() {
               <ReconciliationPanel
                 player={cp}
                 onReconcile={() => doReconciliation(cp?.id)}
+                reconciliationDone={state.reconciliationDone}
                 ecePending={state.ecePending}
                 anrpPending={state.anrpPending}
                 onResolveECE={(choice) => resolveECE(cp?.id, choice)}
@@ -1248,7 +1355,6 @@ export default function App() {
             {state.gameLog.map(e => <LogEntry key={e.id} entry={e} />)}
           </div>
           <GRCPPanel grcp={state.grcp} setState={setState} log={log} round={state.round} />
-          <AIChatPanel grcp={state.grcp} />
           <div style={{ borderTop: "1px solid #1e2535", paddingTop: 10, marginTop: 8 }}>
             <div style={{ color: "#64748b", fontSize: 11, fontWeight: 700, letterSpacing: 2, marginBottom: 6 }}>RC TRACKER</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1388,7 +1494,7 @@ const COEFF_META = {
   epsilon: { label: "Quantum Residue drag", resource: "QR", color: "#fbbf24", help: "How much QR hurts your weave" },
 };
 
-function PreliminaryPanel({ rc, round, coefficients, onRecalc, onSkipTurn, playerName,
+function PreliminaryPanel({ rc, round, coefficients, onSkipTurn, playerName,
   players, monopolyRoundsInControl, monopolyLoggedThisRound, onUpdateMonopoly, onWinMonopoly }) {
   const torst = calcToRST(rc);
 
@@ -1471,7 +1577,6 @@ function PreliminaryPanel({ rc, round, coefficients, onRecalc, onSkipTurn, playe
             );
           })}
         </div>
-        <button onClick={onRecalc} style={{ ...styles.btnSm, marginTop: 8 }}>Recalculate for This Round</button>
       </div>
       <div style={{ background: "#0a0f1a", borderRadius: 6, padding: "8px 12px", marginBottom: 12 }}>
         <div style={{ color: "#64748b", fontSize: 11, marginBottom: 4 }}>WEAVE DIFFICULTY THIS ROUND</div>
@@ -1869,20 +1974,9 @@ function WeavingPanel({ player, weavingInputs, setWeavingInputs, weavingCalc, ac
     return bal;
   }
 
-  function canAffordAction(a, excludeId) {
+  function canAffordAction(a) {
     const effectiveCost = getDisplayCost(a);
-    const selectedWithout = excludeId ? actionsSelected.filter(x => x !== excludeId) : actionsSelected;
-    const bal = { ToC: player?.ToC||0, DR: player?.DR||0, SN: player?.SN||0, TB: player?.TB||0, QR: player?.QR||0 };
-    for (const id of selectedWithout) {
-      const act = WEAVING_ACTIONS.find(x => x.id === id);
-      if (!act) continue;
-      const actCost = getDisplayCost(act);
-      for (const [res, amt] of Object.entries(actCost)) bal[res] = Math.max(0, (bal[res]||0) - amt);
-      for (const [res, amt] of Object.entries(act.effect||{})) {
-        if (res !== "skipNextTurn") bal[res] = Math.max(0, (bal[res]||0) + amt);
-      }
-    }
-    return Object.entries(effectiveCost).every(([res, amt]) => (bal[res]||0) >= amt);
+    return Object.entries(effectiveCost).every(([res, amt]) => (player?.[res] || 0) >= amt);
   }
 
   function toggleAction(id) {
@@ -1895,7 +1989,7 @@ function WeavingPanel({ player, weavingInputs, setWeavingInputs, weavingCalc, ac
     if (actionsSelected.length >= 3) return;
     const action = WEAVING_ACTIONS.find(a => a.id === id);
     if (!action) return;
-    if (!canAffordAction(action, null)) return; // can't afford given current selections
+    if (!canAffordAction(action)) return; // can't afford based on current resources
     setActionsSelected(prev => [...prev, id]);
   }
 
@@ -1957,7 +2051,7 @@ function WeavingPanel({ player, weavingInputs, setWeavingInputs, weavingCalc, ac
               {WEAVING_ACTIONS.filter(a => a.category === cat).map(a => {
                 const selected = actionsSelected.includes(a.id);
                 // Affordable = can pay from running balance after other selected actions
-                const affordable = canAffordAction(a, selected ? a.id : null);
+                const affordable = canAffordAction(a);
                 const full = !selected && actionsSelected.length >= 3;
                 const disabled = actionsApplied || full || (!selected && !affordable);
                 // Cost display using running balance
@@ -2118,14 +2212,14 @@ function WeavingPanel({ player, weavingInputs, setWeavingInputs, weavingCalc, ac
   );
 }
 
-function ReconciliationPanel({ player, onReconcile, ecePending, anrpPending, onResolveECE, onResolveANRP }) {
+function ReconciliationPanel({ player, onReconcile, reconciliationDone, ecePending, anrpPending, onResolveECE, onResolveANRP }) {
   const [selectedECE, setSelectedECE] = useState(null);
   return (
     <div>
       <div style={{ color: "#64748b", fontSize: 12, marginBottom: 10 }}>
         Auto-check penalties: DR→QR, unstable timeline (QR≥20), chaos rolls (DR≥10/15).
       </div>
-      <button onClick={onReconcile} style={styles.btnSm}>Run Reconciliation for {player?.name}</button>
+      <button onClick={onReconcile} disabled={reconciliationDone} style={{ ...styles.btnSm, opacity: reconciliationDone ? 0.45 : 1, cursor: reconciliationDone ? "not-allowed" : "pointer", pointerEvents: reconciliationDone ? "none" : "auto" }}>{reconciliationDone ? `✓ Reconciliation Complete for ${player?.name}` : `Run Reconciliation for ${player?.name}`}</button>
 
       {ecePending && (
         <div style={{ marginTop: 16, background: "#f8717122", border: "1px solid #f87171", borderRadius: 8, padding: 12 }}>
@@ -2344,17 +2438,17 @@ const PHASE_RULES = {
     summary: "Resolve DR/QR penalties and chaos rolls.",
     rules: [
       "For every 5 DR you have, gain 1 QR.",
-      "If you have 20+ QR: Unstable Timeline — forfeit next turn, discard hand, lose 5 QR and 5 ToC.",
+      "If you have 20+ QR: Unstable Timeline — forfeit next turn, lose 5 QR and 5 ToC.",
       "ECE is now triggered voluntarily during the Weaving Phase by spending 15 QR (action: Trigger Ethereal Chaos Event).",
       "High DR (≥10) is flagged as a warning during Reconciliation — reduce it with actions.",
       "ECE options: Nebula Flush (lose all TB/SN/ToC; others +5 QR; RC+1), Nebula Reset (others reset to 0; you +5ToC+1TB+3SN, skip next turn; RC+2), Nebula Collapse (all +25%DR, +15%QR, −⅔ToC, −⅓SN; RC+3).",
     ],
   },
   Ending: {
-    summary: "Verify resources, optional hand swap, update inflation tracker.",
+    summary: "Verify resources and update inflation tracker.",
     rules: [
       "Ensure all resources are accurate and all penalties have been applied.",
-      "You may discard your entire hand for 3 ToC and draw 3 new cards.",
+      "Update any manual notes, alliances, and table trackers that changed this round.",
       "Update the inflation tracker with total resource production this round.",
       "Inflation tiers: Stable (≤ threshold), Moderate (≤ 1.5×), High (≤ 2×), Severe (> 2×). PN efficiency: 100% / 90% / 75% / 50%.",
     ],
@@ -2461,6 +2555,16 @@ function GRCPPanel({ grcp, setState, log, round }) {
           ) : (
             <div style={{ background: "#0a0f1a", borderRadius: 6, padding: 10, marginTop: 4 }}>
               <div style={{ color: "#fbbf24", fontSize: 11, fontWeight: 700, marginBottom: 6 }}>New Rule Change</div>
+              <div style={{ background:"#101827", border:"1px solid #1f2937", borderRadius:6, padding:8, marginBottom:8, color:"#94a3b8", fontSize:10 }}>
+                <div><b>GRCP Sandbox Guide</b></div>
+                <div>All = global rule affecting every phase.</div>
+                <div>Other = social / bookkeeping / victory rules not tied to a phase.</div>
+                <div>For action-cost changes, record the COMPLETE replacement cost in the change field.</div>
+                <div>Examples:</div>
+                <div>• SA1 cost becomes: 4 ToC + 2 DR</div>
+                <div>• Remove DR requirement from Upgrade PN</div>
+                <div>• Weaving attempts limited to once per round</div>
+              </div>
               <input placeholder="Original rule (brief)" value={form.rule}
                 onChange={e => setForm(f => ({...f, rule: e.target.value}))} style={styles.input} />
               <input placeholder="New rule / change" value={form.change}
@@ -2478,159 +2582,6 @@ function GRCPPanel({ grcp, setState, log, round }) {
               </div>
             </div>
           )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── AI RULES CHATBOT ─────────────────────────────────────────────────────────
-const RULEBOOK_CONTEXT = `You are a rules arbiter for a tabletop game called "Threads of Continuity". Answer rules questions clearly and concisely. Here are the complete rules:
-
-OBJECTIVE: Be the first player to weave 3 Tapestries of Reality (ToR). If the Reality Constant (RC) reaches 100, all players lose.
-
-RESOURCES: ToC (Threads of Continuity), DR (Dimensional Ripples), SN (Spatial Nodes), QR (Quantum Residues), TB (Temporal Bridges).
-
-STARTING RESOURCES: 5 ToC, 2 DR, 1 SN, 2 QR, 0 TB.
-
-TURN ORDER: Roll both d6, multiply result, divide by birth month, add birth day. Ascending order. If after 6pm, play in reverse.
-
-PHASES (each player takes all phases in order):
-1. PRELIMINARY (once per round, before first player's turn): Calculate RC and weaving coefficients.
-2. RESOURCE COLLECTION: Collect PN resources. Roll 2d6: 2-5=+3ToC, 6-8=+2DR, 9-10=+2SN, 11-12=+1TB.
-3. MERGING: Buy PNs, trade, form alliances, propose GRCPs. Note resource totals at end for Possible Usage.
-4. WEAVING: Choose EITHER 3 actions OR attempt a ToR weave (not both).
-5. RECONCILIATION: For every 5 DR, gain 1 QR. If QR>=20: unstable timeline (skip next turn, lose hand, -5QR, -5ToC). If DR>=10: roll d6, on 5 trigger ECE. If DR>=15: roll d6, on 1 or 5 trigger ECE.
-6. ENDING: Verify resources, optional hand swap (cost 3 ToC), update inflation tracker.
-
-WEAVING ACTIONS (choose 3):
-- Resource Manipulation: Spend 3 ToC or 2 SN → lower QR by 1. Spend 2 ToC or 1 SN → lower DR by 1. Exchange 4 ToC for 1 SN. Spend 3 SN → gain 1 TB.
-- Player Interaction: Spend 5 ToC → opponent loses 1 SN. Spend 6 ToC → protect SN until next turn. Spend 10 DR → opponent loses 1 PN. Spend 7 DR → opponent discards 2 resources.
-- Special: Spend 15 DR → trigger ECE (also skip next turn). Spend 8 ToC + 3 TB → RC +3.
-- Resource Gain: Spend 5 ToC → gain 2 DR. Gain 1 QR, roll d6 (4-6: +1 QR). Gain 2 DR, opponent gains 2 QR.
-- Weaving-Related: Spend 10 SN → RC -5. Spend 5 TB → reduce target's next WS by 2.
-
-WEAVING FORMULA: WS = (α×TB + β×SN + γ×ToC) / (δ×DR + ε×QR). DR and QR are your TOTAL current amounts — you can't opt out. ToRST = 1.5 × ln(RC+1). PT = 1.5 × (WS/ToRST) × 100. Roll d100 ≤ PT to succeed. Success: +1 ToR, RC-2 next round. Fail: lose committed resources, RC+1.
-
-COEFFICIENTS: Scaling Factor = ((Usage/PossibleUsage) - 0.6)^2. If usage > 50%: subtract (penalty). If < 50%: add (bonus). Base: α=1.5, β=1.2, γ=1.0, δ=1.3, ε=1.1.
-
-RC FORMULA (standard): RC = Base RC + R² (R = round number). Alternative stable: RC = Base + R^1.5. Alternative chaotic: RC = Base + 2^R.
-
-PRODUCTION NODES (PN): Generate resources each round. Creation costs: ToC node = 6DR+2ToC. DR node = 8DR. TB node = 4ToC+3DR. SN node = 5DR+1ToC.
-
-ECE OPTIONS: Nebula Flush (lose all TB/SN/ToC; all others +5 QR; RC+1). Nebula Reset (all others reset to 0; you +5ToC+1TB+3SN, skip next turn; RC+2). Nebula Collapse (all +25%DR, +15%QR, -2/3 ToC, -1/3 SN; RC+3).
-
-INFLATION: Evaluated at end of each round. Thresholds: ToC=40, TB=25, QR=60, DR=20, SN=30. Stable (≤threshold): no effect. Moderate (≤1.5×): PNs 90%, +.5 RC per 10 over. High (≤2×): PNs 75%, +1 RC per 10 over. Severe (>2×): PNs 50%, +1.5 RC per 10 over.
-
-GRCP (Game Rule Change Proposal): Any player can propose during their Merging Phase. Process: document proposal → initial vote (supermajority passes immediately) → 90-120 second argument → deliberations → final vote → document final decision. Any rule can be changed.
-
-DIMENSIONAL MONOPOLY: Alternate win condition (details in full rulebook).
-
-CHALLENGES: Players can challenge others' actions. Supermajority required to pass a challenge. Successful challenge: challenger must undo relevant actions.`;
-
-function AIChatPanel({ grcp }) {
-  const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function sendMessage() {
-    const text = input.trim();
-    if (!text || loading) return;
-    const userMsg = { role: "user", content: text };
-    const newMessages = [...messages, userMsg];
-    setMessages(newMessages);
-    setInput("");
-    setLoading(true);
-
-    // Build system prompt with any active GRCPs injected
-    let systemPrompt = RULEBOOK_CONTEXT;
-    if (grcp.length > 0) {
-      systemPrompt += "\n\nACTIVE RULE CHANGES (GRCP) — these override the base rules:\n";
-      grcp.forEach(g => {
-        systemPrompt += `- ${g.affectedPhase}: Original rule "${g.rule}" has been changed to: "${g.change}"${g.reason ? ` (Reason: ${g.reason})` : ""}.\n`;
-      });
-    }
-    systemPrompt += "\n\nAnswer questions about the rules concisely and accurately. If a GRCP overrides a base rule, cite the GRCP. Keep answers under 150 words.";
-
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          system: systemPrompt,
-          messages: newMessages,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        const errMsg = data?.error?.message || `API error ${res.status}`;
-        setMessages(prev => [...prev, { role: "assistant", content: `⚠ ${errMsg}` }]);
-      } else {
-        const reply = data.content?.find(b => b.type === "text")?.text || "No response text returned.";
-        setMessages(prev => [...prev, { role: "assistant", content: reply }]);
-      }
-    } catch (e) {
-      setMessages(prev => [...prev, { role: "assistant", content: `⚠ Network error: ${e.message}` }]);
-    }
-    setLoading(false);
-  }
-
-  return (
-    <div style={{ borderTop: "1px solid #1e2535", paddingTop: 10, marginBottom: 10 }}>
-      <button onClick={() => setOpen(o => !o)} style={{
-        ...styles.btnSm, width: "100%", display: "flex", justifyContent: "space-between",
-        background: "transparent", marginBottom: open ? 6 : 0,
-      }}>
-        <span style={{ color: "#60a5fa" }}>🤖 Rules Arbiter</span>
-        <span style={{ color: "#475569" }}>{open ? "▲" : "▼"}</span>
-      </button>
-      {open && (
-        <div style={{ background: "#0a0f1a", border: "1px solid #1e2535", borderRadius: 8, padding: 10 }}>
-          <div style={{ height: 200, overflowY: "auto", marginBottom: 8 }}>
-            {messages.length === 0 && (
-              <div style={{ color: "#334155", fontSize: 11, textAlign: "center", marginTop: 60 }}>
-                Ask any rules question — including about active rule changes.
-              </div>
-            )}
-            {messages.map((m, i) => (
-              <div key={i} style={{
-                marginBottom: 8,
-                padding: "6px 10px",
-                borderRadius: 6,
-                background: m.role === "user" ? "#1a2235" : "#0f1f1a",
-                border: `1px solid ${m.role === "user" ? "#2a3147" : "#1a3a2a"}`,
-              }}>
-                <div style={{ color: m.role === "user" ? "#60a5fa" : "#4ade80", fontSize: 10, marginBottom: 3, fontWeight: 700 }}>
-                  {m.role === "user" ? "YOU" : "ARBITER"}
-                </div>
-                <div style={{ color: "#94a3b8", fontSize: 12 }}>{m.content}</div>
-              </div>
-            ))}
-            {loading && (
-              <div style={{ color: "#475569", fontSize: 11, padding: "6px 10px" }}>Arbiter is thinking…</div>
-            )}
-          </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <input
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && sendMessage()}
-              placeholder="Ask a rules question…"
-              style={{ ...styles.input, flex: 1, marginBottom: 0, fontSize: 12 }}
-            />
-            <button onClick={sendMessage} disabled={loading || !input.trim()} style={{
-              ...styles.btnSm,
-              borderColor: "#60a5fa", color: "#60a5fa",
-              opacity: (loading || !input.trim()) ? 0.5 : 1,
-            }}>Ask</button>
-          </div>
         </div>
       )}
     </div>
@@ -2662,17 +2613,20 @@ function RoundIntroOverlay({ round, rc, coefficients, prevCoefficients, prevUsag
     const isBoost = ["alpha","beta","gamma"].includes(k);
     const meta = COEFF_META[k];
     let delta = prev != null ? cur - prev : 0;
+    const displayDelta = isBoost ? delta : -delta;
     let explanation = "";
     if (pct === null || pct === undefined) {
       explanation = "No usage data from last round — staying at base.";
+    } else if (pct === 0) {
+      explanation = `${res} was not spent at all (0%) — strong neglect bonus applied. Unused resources get weighted more heavily next round.`;
     } else if (pct > 50) {
-      explanation = `${res} was used heavily (${pct}%) — ${isBoost ? "boost reduced" : "drag reduced"} (overuse penalty).`;
+      explanation = `${res} was heavily used (${pct}%) — ${isBoost ? "boost weakened" : "drag weakened"} via overuse penalty.`;
     } else if (pct < 50) {
-      explanation = `${res} was barely used (${pct}%) — ${isBoost ? "boost increased" : "drag increased"} (neglect bonus).`;
+      explanation = `${res} was lightly used (${pct}%) — ${isBoost ? "boost increased" : "drag increased"} via neglect bonus.`;
     } else {
-      explanation = `${res} usage was exactly 50% — no change.`;
+      explanation = `${res} usage was exactly 50% — minimal change.`;
     }
-    return { k, res, cur, prev, delta, pct, isBoost, meta, explanation };
+    return { k, res, cur, prev, delta, displayDelta, pct, isBoost, meta, explanation };
   });
 
   return (
@@ -2713,7 +2667,7 @@ function RoundIntroOverlay({ round, rc, coefficients, prevCoefficients, prevUsag
         {/* Coefficients with change explanations */}
         <div style={{ background: "#0a0f1a", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
           <div style={{ color: "#64748b", fontSize: 10, letterSpacing: 1, marginBottom: 8 }}>WEAVING COEFFICIENTS THIS ROUND</div>
-          {coeffChanges.map(({ k, res, cur, prev, delta, pct, isBoost, meta, explanation }) => (
+          {coeffChanges.map(({ k, res, cur, prev, delta, displayDelta, pct, isBoost, meta, explanation }) => (
             <div key={k} style={{ marginBottom: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
                 <span style={{ color: meta.color, fontSize: 12, fontWeight: 700 }}>
@@ -2721,9 +2675,9 @@ function RoundIntroOverlay({ round, rc, coefficients, prevCoefficients, prevUsag
                   <span style={{ color: "#475569", fontWeight: 400, fontSize: 10 }}> {meta.label}</span>
                 </span>
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  {prev != null && Math.abs(delta) > 0.0001 && (
-                    <span style={{ color: delta > 0 ? "#4ade80" : "#f87171", fontSize: 10 }}>
-                      {delta > 0 ? "▲" : "▼"}{Math.abs(delta).toFixed(3)}
+                  {prev != null && Math.abs(displayDelta) > 0.0001 && (
+                    <span style={{ color: displayDelta > 0 ? "#4ade80" : "#f87171", fontSize: 10 }}>
+                      {displayDelta > 0 ? "▲" : "▼"}{Math.abs(delta).toFixed(3)}
                     </span>
                   )}
                   <span style={{ color: meta.color, fontWeight: 700, fontSize: 14 }}>
@@ -2792,198 +2746,6 @@ function RoundIntroOverlay({ round, rc, coefficients, prevCoefficients, prevUsag
           Begin Round {round} →
         </button>
       </div>
-    </div>
-  );
-}
-
-  // Inflation status this round
-  const inflationStatus = resources.map(r => {
-    const threshold = INFLATION_THRESHOLDS[r];
-    if (!threshold) return null;
-    const total = players.reduce((s, p) => s + (p[r]||0), 0);
-    const tier = getInflationTier(r, total);
-    return { r, total, threshold, tier };
-  }).filter(Boolean);
-
-  const activeGRCPs = grcp.filter(g => g.overrides && g.overrides.length > 0);
-
-  return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 200,
-      background: "#000000cc", display: "flex", alignItems: "center", justifyContent: "center",
-      padding: 20,
-    }}>
-      <div style={{
-        background: "#0f1624", border: "1px solid #2a3147", borderRadius: 12,
-        padding: 28, maxWidth: 560, width: "100%", maxHeight: "90vh", overflowY: "auto",
-        boxShadow: "0 24px 64px #000000cc",
-      }}>
-        <div style={{ fontFamily: "'Cinzel', serif", fontSize: 22, color: "#a78bfa", marginBottom: 4 }}>
-          Round {round} Begins
-        </div>
-        <div style={{ color: "#334155", fontSize: 12, marginBottom: 20 }}>
-          Here's everything you need to know heading into this round.
-        </div>
-
-        {/* RC + ToRST */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-          <div style={{ flex: 1, background: "#0a0f1a", borderRadius: 8, padding: "10px 14px" }}>
-            <div style={{ color: "#f87171", fontSize: 10, letterSpacing: 1, marginBottom: 4 }}>REALITY CONSTANT</div>
-            <div style={{ color: "#f87171", fontWeight: 700, fontSize: 28 }}>{rc.toFixed(1)}</div>
-            <div style={{ background: "#1a2235", borderRadius: 3, height: 5, marginTop: 6 }}>
-              <div style={{ width: `${Math.min(100, rc)}%`, height: 5, borderRadius: 3,
-                background: rc >= 75 ? "#f87171" : rc >= 50 ? "#fbbf24" : "#4ade80" }} />
-            </div>
-          </div>
-          <div style={{ flex: 1, background: "#0a0f1a", borderRadius: 8, padding: "10px 14px" }}>
-            <div style={{ color: "#a78bfa", fontSize: 10, letterSpacing: 1, marginBottom: 4 }}>WEAVE THRESHOLD (ToRST)</div>
-            <div style={{ color: "#a78bfa", fontWeight: 700, fontSize: 28 }}>{torst.toFixed(3)}</div>
-            <div style={{ color: "#475569", fontSize: 11, marginTop: 4 }}>Your WS must exceed this to have any chance.</div>
-          </div>
-        </div>
-
-        {/* Coefficients */}
-        <div style={{ background: "#0a0f1a", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
-          <div style={{ color: "#64748b", fontSize: 10, letterSpacing: 1, marginBottom: 8 }}>WEAVING COEFFICIENTS THIS ROUND</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-            {Object.entries(coefficients).map(([k, v]) => {
-              const meta = COEFF_META[k];
-              const isBoost = ["alpha","beta","gamma"].includes(k);
-              const pct = Object.keys(totalPossible).length > 0
-                ? ((totalUsed[meta.resource]||0) / Math.max(1, totalPossible[meta.resource]||1) * 100)
-                : null;
-              return (
-                <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ color: meta.color, fontSize: 12 }}>
-                    {isBoost ? "↑" : "↓"} {meta.resource}
-                  </span>
-                  <span style={{ color: meta.color, fontWeight: 700, fontSize: 14 }}>
-                    {isBoost ? "+" : "−"}{v.toFixed(3)}
-                    {pct !== null && <span style={{ color: "#334155", fontSize: 9, marginLeft: 4 }}>({pct.toFixed(0)}% used)</span>}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Inflation */}
-        <div style={{ background: "#0a0f1a", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
-          <div style={{ color: "#64748b", fontSize: 10, letterSpacing: 1, marginBottom: 8 }}>INFLATION STATUS</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {inflationStatus.map(({ r, total, threshold, tier }) => {
-              const tierColor = { Stable: "#4ade80", Moderate: "#fbbf24", High: "#fb923c", Severe: "#f87171" }[tier] || "#475569";
-              return (
-                <div key={r} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ color: RESOURCE_COLORS[r], fontSize: 12 }}>{r}</span>
-                  <span style={{ color: "#475569", fontSize: 11 }}>{total}/{threshold}</span>
-                  <span style={{ color: tierColor, fontSize: 11, fontWeight: 700 }}>{tier}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Player standings */}
-        <div style={{ background: "#0a0f1a", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
-          <div style={{ color: "#64748b", fontSize: 10, letterSpacing: 1, marginBottom: 8 }}>PLAYER STANDINGS</div>
-          {[...players].sort((a,b) => b.tor - a.tor).map(p => (
-            <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-              <span style={{ color: "#e2e8f0", fontSize: 13 }}>{p.name}</span>
-              <div style={{ display: "flex", gap: 10 }}>
-                <span style={{ color: "#4ade80", fontSize: 12 }}>ToR {p.tor}/3</span>
-                <span style={{ color: p.QR >= 13 ? "#f87171" : p.QR >= 7 ? "#fbbf24" : "#475569", fontSize: 12 }}>QR {p.QR}</span>
-                <span style={{ color: "#60a5fa", fontSize: 12 }}>{p.pns.length} PN{p.pns.length !== 1 ? "s" : ""}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Active GRCPs */}
-        {activeGRCPs.length > 0 && (
-          <div style={{ background: "#fbbf2411", border: "1px solid #fbbf2433", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
-            <div style={{ color: "#fbbf24", fontSize: 10, letterSpacing: 1, marginBottom: 6 }}>ACTIVE RULE CHANGES</div>
-            {activeGRCPs.map(g => (
-              <div key={g.id} style={{ color: "#94a3b8", fontSize: 11, marginBottom: 3 }}>
-                ⚑ {g.rule} → {g.change}
-              </div>
-            ))}
-          </div>
-        )}
-
-        <button onClick={onDismiss} style={{ ...styles.btn, width: "100%", fontSize: 14, padding: "12px 0" }}>
-          Begin Round {round} →
-        </button>
-      </div>
-    </div>
-  );
-
-// ─── GAME SUMMARY (AI-generated chronicle) ────────────────────────────────────
-function GameSummary({ gameLog, players, round, winType, winner }) {
-  const [summary, setSummary] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  async function generateSummary() {
-    setLoading(true);
-    const logText = gameLog.slice().reverse().map(e => e.msg).join("\n");
-    const playerText = players.map(p =>
-      `${p.name}: ${p.tor} ToR, ${p.ToC} ToC, ${p.DR} DR, ${p.SN} SN, ${p.QR} QR, ${p.TB} TB, ${p.pns.length} PNs`
-    ).join("\n");
-
-    const prompt = `You are a dramatic chronicler of the game "Threads of Continuity", a tabletop game about players competing to weave Tapestries of Reality before the universe collapses.
-
-Here is the game log (most recent first):
-${logText}
-
-Final player states:
-${playerText}
-
-Game lasted ${round} rounds.
-${winner ? `Winner: ${winner.name} via ${winType === 'monopoly' ? 'Dimensional Monopoly' : '3 Tapestries of Reality'}.` : "The Reality Constant reached 100 — all players lost as reality collapsed."}
-
-Write a short, dramatic chronicle of this game in 3-4 paragraphs. Write it like a mythological tale or space opera log entry. Reference specific events from the log where possible (ECEs, weaving attempts, sabotages, etc.). Use the players' names. Make it vivid and narrative, not a list of events. Do NOT use bullet points. Keep it under 250 words.`;
-
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) setSummary(`Error: ${data?.error?.message || res.status}`);
-      else setSummary(data.content?.find(b => b.type === "text")?.text || "No summary generated.");
-    } catch (e) {
-      setSummary(`Network error: ${e.message}`);
-    }
-    setLoading(false);
-  }
-
-  return (
-    <div style={{ maxWidth: 520, margin: "24px auto 0", textAlign: "left" }}>
-      {!summary && !loading && (
-        <button onClick={generateSummary} style={{ ...styles.btnSm, width: "100%", padding: "10px 0", borderColor: "#a78bfa", color: "#a78bfa" }}>
-          ✦ Generate Game Chronicle
-        </button>
-      )}
-      {loading && (
-        <div style={{ color: "#475569", fontSize: 13, textAlign: "center", padding: 16 }}>
-          Chronicling the fate of reality…
-        </div>
-      )}
-      {summary && (
-        <div style={{ background: "#0a0f1a", border: "1px solid #2a3147", borderRadius: 10, padding: 20 }}>
-          <div style={{ color: "#a78bfa", fontSize: 11, letterSpacing: 2, marginBottom: 12 }}>CHRONICLE OF THIS REALITY</div>
-          <div style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{summary}</div>
-        </div>
-      )}
     </div>
   );
 }
