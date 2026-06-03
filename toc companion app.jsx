@@ -9,20 +9,22 @@ const RESOURCE_COLORS = {
   QR: "#fbbf24",
 };
 
-const PN_TYPES = ["ToC", "DR", "TB", "SN"];
+const PN_TYPES = ["ToC", "DR", "TB", "SN", "QR"];
 
 const PN_CREATION_COST = {
-  ToC: { DR: 6, ToC: 2 },
-  DR: { DR: 8 },
-  TB: { ToC: 4, DR: 3 },
-  SN: { DR: 5, ToC: 1 },
+  ToC: { SN: 2, ToC: 3 },
+  DR: { SN: 3, DR: 4 },
+  TB: { SN: 3, TB: 2 },
+  SN: { SN: 6 },
+  QR: { SN: 2, QR: 4 },
 };
 
 const PN_UPGRADE_COSTS = {
-  ToC: [null, { DR: 8, ToC: 2 }, { DR: 12, ToC: 3 }, { DR: 16, ToC: 4 }],
-  DR:  [null, { DR: 10 },        { DR: 14 },           { DR: 18 }],
-  TB:  [null, { DR: 6, ToC: 3 }, { DR: 8, ToC: 4 },   { DR: 10, ToC: 5 }],
-  SN:  [null, { DR: 7, ToC: 1 }, { DR: 10, ToC: 2 },  { DR: 14, ToC: 3 }],
+  ToC: [null, { SN: 1, ToC: 2 }, { SN: 1, ToC: 2 }, { SN: 1, ToC: 2 }],
+  DR:  [null, { SN: 2, DR: 3 },  { SN: 2, DR: 3 },  { SN: 2, DR: 3 }],
+  TB:  [null, { SN: 2, TB: 1 },  { SN: 2, TB: 1 },  { SN: 2, TB: 1 }],
+  SN:  [null, { SN: 5 },         { SN: 5 },          { SN: 5 }],
+  QR:  [null, { SN: 1, QR: 3 },  { SN: 1, QR: 3 },  { SN: 1, QR: 3 }],
 };
 function getUpgradeCost(type, currentLevel) {
   const idx = currentLevel; // cost to go from level N to N+1 is at index N
@@ -30,7 +32,7 @@ function getUpgradeCost(type, currentLevel) {
   return costs && idx < costs.length ? costs[idx] : null;
 }
 
-const INFLATION_THRESHOLDS = { ToC: 40, TB: 25, QR: 60, DR: 20, SN: 30 };
+const INFLATION_THRESHOLDS = { ToC: 30, TB: 20, QR: 45, DR: 25, SN: 20 };
 
 const PHASES = [
   "Preliminary",
@@ -56,33 +58,30 @@ const WEAVING_ACTIONS = [
     cost: { ToC: 3 }, altCost: { SN: 2 }, effect: { QR: -1 } },
   { id: "rm2", label: "Lower DR by 1", desc: "Spend 2 ToC (or alt: 1 SN)", category: "Resource Manipulation",
     cost: { ToC: 2 }, altCost: { SN: 1 }, effect: { DR: -1 } },
-  { id: "rm3", label: "Exchange 4 ToC for 1 SN", desc: "Spend 4 ToC", category: "Resource Manipulation",
-    cost: { ToC: 4 }, effect: { SN: 1 } },
-  { id: "rm4", label: "Gain 1 TB", desc: "Spend 3 SN", category: "Resource Manipulation",
-    cost: { SN: 3 }, effect: { TB: 1 } },
-  { id: "pi1", label: "Force opponent to lose 1 SN", desc: "Spend 5 ToC", category: "Player Interaction",
-    cost: { ToC: 5 }, effect: {}, social: "Apply -1 SN to chosen opponent manually." },
-  { id: "pi2", label: "Protect your SN until next turn", desc: "Spend 6 ToC", category: "Player Interaction",
-    cost: { ToC: 6 }, effect: {} },
+  { id: "cv1", label: "Convert 2 ToC → 1 DR", desc: "Spend 2 ToC", category: "Conversions",
+    cost: { ToC: 2 }, effect: { DR: 1 } },
+  { id: "cv2", label: "Convert 3 ToC → 1 SN", desc: "Spend 3 ToC", category: "Conversions",
+    cost: { ToC: 3 }, effect: { SN: 1 } },
+  { id: "cv3", label: "Convert 5 ToC → 1 TB", desc: "Spend 5 ToC", category: "Conversions",
+    cost: { ToC: 5 }, effect: { TB: 1 } },
+  { id: "cv4", label: "Convert 1 ToC → 1 QR", desc: "Spend 1 ToC", category: "Conversions",
+    cost: { ToC: 1 }, effect: { QR: 1 } },
+  { id: "pi1", label: "Force opponent to lose 1 SN", desc: "Spend 5 DR", category: "Player Interaction",
+    cost: { DR: 5 }, effect: {}, social: "Apply -1 SN to chosen opponent manually." },
+  { id: "pi2", label: "Insure your PNs for 2 rounds", desc: "Spend 15 ToC", category: "Player Interaction",
+    cost: { ToC: 15 }, effect: {}, social: "Your PNs are protected from sabotage for 2 rounds. Track manually." },
   { id: "pi3", label: "Force opponent to lose 1 PN", desc: "Spend 10 DR", category: "Player Interaction",
     cost: { DR: 10 }, effect: {}, social: "Remove 1 PN from chosen opponent manually." },
   { id: "pi4", label: "Force opponent to discard 2 resources", desc: "Spend 7 DR", category: "Player Interaction",
     cost: { DR: 7 }, effect: {}, social: "Chosen opponent discards 2 resources of their choice." },
   { id: "sa1", label: "Trigger Ethereal Chaos Event", desc: "Spend 15 QR (skip next turn)", category: "Special Actions",
     cost: { QR: 15 }, effect: { skipNextTurn: true }, social: "ECE triggered — resolve during Reconciliation." },
-  { id: "sa2", label: "Force RC +3", desc: "Spend 8 ToC + 3 TB", category: "Special Actions",
-    cost: { ToC: 8, TB: 3 }, effect: {}, rcDelta: 3 },
-  { id: "rg1", label: "Gain 2 DR", desc: "Spend 5 ToC", category: "Resource Gain",
-    cost: { ToC: 5 }, effect: { DR: 2 } },
-  { id: "rg2", label: "Gain 1 QR (maybe 2)", desc: "Free — roll d6, on 4-6 gain +1 more", category: "Resource Gain",
-    cost: {}, effect: { QR: 1 }, rollForExtra: { res: "QR", threshold: 4 } },
-  { id: "rg3", label: "Gain 2 DR, force opponent +2 QR", desc: "Spend 2 TB", category: "Resource Gain",
-    cost: { TB: 2 }, effect: { DR: 2 }, social: "Apply +2 QR to chosen opponent manually." },
-
-  { id: "wr1", label: "Reduce RC by 5", desc: "Spend 10 SN", category: "Weaving-Related",
-    cost: { SN: 10 }, effect: {}, rcDelta: -5 },
-  { id: "wr2", label: "Reduce a player's next Weaving Score by 2", desc: "Spend 5 TB", category: "Weaving-Related",
-    cost: { TB: 5 }, effect: {}, social: "Apply -2 WS debuff to chosen opponent manually." },
+  { id: "sa2", label: "Force RC +3", desc: "Spend 10 DR", category: "Special Actions",
+    cost: { DR: 10 }, effect: {}, rcDelta: 3 },
+  { id: "wr1", label: "Reduce RC by 5", desc: "Spend 15 ToC", category: "Weaving-Related",
+    cost: { ToC: 15 }, effect: {}, rcDelta: -5 },
+  { id: "wr2", label: "Halve opponent’s next Weaving Score", desc: "Spend 10 DR", category: "Weaving-Related",
+    cost: { DR: 10 }, effect: {}, social: "Choose target — their WS will be halved (50%) on their next weave attempt. Persists across rounds. Apply manually." },
 ];
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
@@ -91,18 +90,18 @@ const roll2d6 = () => ({ d1: rollDie(6), d2: rollDie(6) });
 const rollD100 = () => rollDie(100);
 
 function calcRC(baseRC, round) {
-  return baseRC + round * round;
+  return baseRC + Math.pow(round, 1.5);
 }
 
 function calcToRST(rc) {
   return 1.5 * Math.log(rc + 1);
 }
 
-function calcWS(resources, coefficients) {
+function calcWS(resources, coefficients, rc) {
   const { ToC, TB, SN, DR, QR } = resources;
   const { alpha, beta, gamma, delta, epsilon } = coefficients;
-  const denom = delta * DR + epsilon * QR;
-  if (denom === 0) return 999;
+  const baseDrag = 0.5 + ((rc || 0) / 100);
+  const denom = delta * DR + epsilon * QR + baseDrag;
   return (alpha * TB + beta * SN + gamma * ToC) / denom;
 }
 
@@ -152,7 +151,7 @@ function initialState() {
     currentPlayerIdx: 0,
     currentPhase: 0,
     gameLog: [],
-    coefficients: { alpha: 1.2, beta: 1.05, gamma: 1.0, delta: 1.1, epsilon: 1.0 },
+    coefficients: { alpha: 1.4, beta: 1.1, gamma: 1.0, delta: 1.1, epsilon: 1.15 },
     prevResourceUsage: {},
     prevCoefficients: null,
     prevUsagePct: {},
@@ -266,10 +265,11 @@ export default function App() {
       grcp: [], // list of {id, rule, change, reason, round}
       monopolyRoundsInControl: 0, // consecutive rounds at >=50% production
       monopolyLoggedThisRound: false,
+      prevPossibleUsage: { ToC: setupCount * 5, DR: setupCount * 2, SN: setupCount * 1, TB: 0, QR: setupCount * 2 },
       pnCollected: false,
       diceRolled: false,
       reconciliationDone: false,
-      coefficients: { alpha: 1.2, beta: 1.05, gamma: 1.0, delta: 1.1, epsilon: 1.0 },
+      coefficients: { alpha: 1.4, beta: 1.1, gamma: 1.0, delta: 1.1, epsilon: 1.15 },
     }));
   }
 
@@ -397,7 +397,7 @@ export default function App() {
       log(`Not enough resources to weave: insufficient ${insufficient.join(", ")}.`, "event");
       return;
     }
-    const ws = calcWS(fullInputs, state.coefficients);
+    const ws = calcWS(fullInputs, state.coefficients, state.rc);
     const torst = calcToRST(state.rc);
     let pt = calcPT(ws, torst);
     // QR graduated weave penalty (your design rule)
@@ -469,7 +469,6 @@ export default function App() {
 
     for (const a of actions) {
       const effectiveCost = resolveActionCost(a);
-      // Track spending
       Object.entries(effectiveCost).forEach(([r, amt]) => { totalSpent[r] = (totalSpent[r] || 0) + amt; });
       // Deduct costs (using GRCP-resolved cost)
       for (const [res, amt] of Object.entries(effectiveCost)) {
@@ -619,30 +618,29 @@ function resetTransientTurnUi() {
 
   function buildRoundStartState(s) {
     const newRound = s.round + 1;
-    const newRC = s.rc + (newRound * newRound) + rcAdjust;
-    const baseCoeffsAuto = { alpha: 1.2, beta: 1.05, gamma: 1.0, delta: 1.1, epsilon: 1.0 };
+    const newRC = s.rc + Math.pow(newRound, 1.5) + rcAdjust;
+    const baseCoeffsAuto = { alpha: 1.4, beta: 1.1, gamma: 1.0, delta: 1.1, epsilon: 1.15 };
     const coeffMap = [["alpha","TB"],["beta","SN"],["gamma","ToC"],["delta","DR"],["epsilon","QR"]];
     const autoUsage = s.prevResourceUsage || {};
-    let autoPossible = s.prevPossibleUsage || {};
-    const possibleHasData = Object.values(autoPossible).some(v => v > 0);
-    if (!possibleHasData) {
-      autoPossible = {};
-      s.players.forEach(p => {
-        ["ToC","DR","SN","TB","QR"].forEach(r => {
-          autoPossible[r] = (autoPossible[r] || 0) + (p[r] || 0);
-        });
-      });
-    }
+    const autoPossible = s.prevPossibleUsage || {};
     const newCoeffs = {};
     coeffMap.forEach(([coeff, res]) => {
       const used = autoUsage[res] || 0;
       const possible = autoPossible[res] || 0;
-      const base = baseCoeffsAuto[coeff];
-      if (possible === 0) { newCoeffs[coeff] = base; return; }
+      const prevCoeff = s.coefficients?.[coeff] || baseCoeffsAuto[coeff];
+      if (possible === 0) { newCoeffs[coeff] = prevCoeff; return; }
       const pct = used / possible;
       const sf = Math.pow(pct - 0.6, 2);
-      newCoeffs[coeff] = pct > 0.5 ? Math.max(0.1, base * (1 - sf)) : base * (1 + sf);
+      newCoeffs[coeff] = pct > 0.5 ? Math.max(0.1, prevCoeff * (1 - sf)) : prevCoeff * (1 + sf);
     });
+    // Snapshot current resources for next round possible usage
+    const newPossible = {};
+    s.players.forEach(p => {
+      ["ToC","DR","SN","TB","QR"].forEach(r => {
+        newPossible[r] = (newPossible[r] || 0) + (p[r] || 0);
+      });
+    });
+
     // Auto-compute monopoly streak
     const globalPNProd = s.players.reduce((sum, p) =>
       sum + (p.pns || []).reduce((s2, pn) => s2 + pn.level, 0), 0);
@@ -664,6 +662,7 @@ function resetTransientTurnUi() {
       ...s,
       round: newRound,
       rc: newRC,
+      prevPossibleUsage: newPossible,
       monopolyRoundsInControl: newMonopolyRounds,
       monopolyLoggedThisRound: true,
       coefficients: newCoeffs,
@@ -671,7 +670,7 @@ function resetTransientTurnUi() {
       prevUsagePct: Object.fromEntries(coeffMap.map(([, res]) => {
         const used = autoUsage[res] || 0;
         const possible = autoPossible[res] || 0;
-        return [res, possible > 0 ? Math.round((used / possible) * 100) : null];
+        return [res, possible > 0 ? Math.min(100, Math.round((used / possible) * 100)) : null];
       })),
       currentPhase: 0,
       diceResult: null,
@@ -772,7 +771,7 @@ function resetTransientTurnUi() {
     const attacker = state.players.find(x => x.id === attackerId);
     const target = state.players.find(x => x.id === targetId);
     if (!attacker || !target) return;
-    const cost = method === "DR" ? { DR: 3 } : { ToC: 5 };
+    const cost = { DR: 3 }; // DR only
     for (const [res, amt] of Object.entries(cost)) {
       if ((attacker[res] || 0) < amt) { log(`Cannot afford sabotage: need ${amt} ${res}.`, "event"); return; }
     }
@@ -824,6 +823,16 @@ function resetTransientTurnUi() {
     }));
     log(`${p.name} collected PN resources: ${Object.entries(totals).map(([k, v]) => `+${v} ${k}`).join(", ")}`, "info");
   }
+
+  // ── AUTO-COLLECT PN RESOURCES ──
+  useEffect(() => {
+    if (state.setup && PHASES[state.currentPhase] === "Resource Collection" && !state.pnCollected) {
+      const cp = state.players[state.currentPlayerIdx];
+      if (cp && cp.pns && cp.pns.length > 0) {
+        collectPNs(cp.id);
+      }
+    }
+  }, [state.currentPhase, state.currentPlayerIdx]);
 
   // ── ECE HANDLER ──
   // All ECEs: initiator forfeits next turn (your rule override, applies to all options)
@@ -979,21 +988,10 @@ function resetTransientTurnUi() {
   
 function nextPhase() {
     setState(s => {
-      let working = s;
-      const leavingMerging = PHASES[s.currentPhase] === "Merging";
-      if (leavingMerging) {
-        const totalPossible = { ToC: 0, DR: 0, SN: 0, TB: 0, QR: 0 };
-        working.players.forEach(p => {
-          ["ToC","DR","SN","TB","QR"].forEach(r => {
-            totalPossible[r] = (totalPossible[r] || 0) + (p[r] || 0);
-          });
-        });
-        working = { ...working, prevPossibleUsage: totalPossible };
+      if (s.currentPhase < PHASES.length - 1) {
+        return { ...s, currentPhase: s.currentPhase + 1, diceResult: null, weavingCalc: null };
       }
-      if (working.currentPhase < PHASES.length - 1) {
-        return { ...working, currentPhase: working.currentPhase + 1, diceResult: null, weavingCalc: null };
-      }
-      return advanceToNextTurnState(working);
+      return advanceToNextTurnState(s);
     });
     resetTransientTurnUi();
   }
@@ -1009,7 +1007,7 @@ function nextPhase() {
       // Sum usage across all players
       const allUsage = s.prevResourceUsage || {};
       const allPossible = s.prevPossibleUsage || {};
-      const baseCoeffs = { alpha: 1.2, beta: 1.05, gamma: 1.0, delta: 1.1, epsilon: 1.0 };
+      const baseCoeffs = { alpha: 1.4, beta: 1.1, gamma: 1.0, delta: 1.1, epsilon: 1.15 };
       // Map: coeff → resource
       const map = [
         ["alpha", "TB"], ["beta", "SN"], ["gamma", "ToC"], ["delta", "DR"], ["epsilon", "QR"]
@@ -1535,20 +1533,7 @@ function PreliminaryPanel({ rc, round, coefficients, onSkipTurn, playerName,
             </div>
           ))}
           <div style={{ marginTop: 8 }}>
-            {monopolyLoggedThisRound ? (
-              <div style={{ color: "#4ade80", fontSize: 11 }}>✓ Streak updated for this round.</div>
-            ) : (
-              <button onClick={() => {
-                const newRounds = leaderInControl ? monopolyRoundsInControl + 1 : 0;
-                onUpdateMonopoly(newRounds);
-                if (newRounds >= 5) onWinMonopoly(leader.playerId);
-              }} style={{ ...styles.btnSm, borderColor: "#fbbf24", color: "#fbbf24", width: "100%" }}>
-                {leaderInControl
-                  ? `✓ ${leader.name} has outright control → +1 streak`
-                  : "✗ No outright leader — streak resets"}
-              </button>
-            )}
-          </div>
+            <div style={{ color: "#4ade80", fontSize: 11 }}>✓ Monopoly streak auto-tracked: {monopolyRoundsInControl}/5</div></div>
         </div>
       )}
 
@@ -1743,17 +1728,7 @@ function MergingPanel({ player, players, pnBuyType, setPnBuyType, onBuyPN, onUpg
               }}>{p.name} ({p.pns.length} PN{p.pns.length !== 1 ? "s" : ""})</button>
             ))}
           </div>
-          <div style={styles.label}>Pay With</div>
-          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-            {[["DR","3 DR"],["ToC","5 ToC"]].map(([m, label]) => (
-              <button key={m} onClick={() => setSabMethod(m)} style={{
-                ...styles.btnSm,
-                borderColor: sabMethod === m ? RESOURCE_COLORS[m] : "#2a3147",
-                color: sabMethod === m ? RESOURCE_COLORS[m] : "#475569",
-                background: sabMethod === m ? `${RESOURCE_COLORS[m]}22` : "transparent",
-              }}>{label}</button>
-            ))}
-          </div>
+          <div style={{ color: "#f87171", fontSize: 12, fontWeight: 700, marginBottom: 10 }}>Cost: 3 DR</div>
           {(() => {
             const targetPlayer = players.find(p => p.id === sabTarget);
             const targetHasPNs = !!(targetPlayer && targetPlayer.pns.length > 0);
@@ -1976,7 +1951,14 @@ function WeavingPanel({ player, weavingInputs, setWeavingInputs, weavingCalc, ac
 
   function canAffordAction(a) {
     const effectiveCost = getDisplayCost(a);
-    return Object.entries(effectiveCost).every(([res, amt]) => (player?.[res] || 0) >= amt);
+    const bal = { ToC: player?.ToC||0, DR: player?.DR||0, SN: player?.SN||0, TB: player?.TB||0, QR: player?.QR||0 };
+    for (const id of actionsSelected) {
+      const act = WEAVING_ACTIONS.find(x => x.id === id);
+      if (!act) continue;
+      const actCost = getDisplayCost(act);
+      for (const [res, amt] of Object.entries(actCost)) bal[res] = Math.max(0, (bal[res]||0) - amt);
+    }
+    return Object.entries(effectiveCost).every(([res, amt]) => (bal[res]||0) >= amt);
   }
 
   function toggleAction(id) {
@@ -1989,7 +1971,7 @@ function WeavingPanel({ player, weavingInputs, setWeavingInputs, weavingCalc, ac
     if (actionsSelected.length >= 3) return;
     const action = WEAVING_ACTIONS.find(a => a.id === id);
     if (!action) return;
-    if (!canAffordAction(action)) return; // can't afford based on current resources
+    if (!canAffordAction(action)) return;
     setActionsSelected(prev => [...prev, id]);
   }
 
@@ -2035,8 +2017,11 @@ function WeavingPanel({ player, weavingInputs, setWeavingInputs, weavingCalc, ac
             <button onClick={() => setWeavingMode(null)} style={{ ...styles.btnSm, fontSize: 10 }}>← Back</button>
           </div>
           {actionsApplied && (
-            <div style={{ background: "#4ade8022", border: "1px solid #4ade80", borderRadius: 6, padding: "6px 10px", marginBottom: 10, color: "#4ade80", fontSize: 12 }}>
-              ✓ Actions applied for this turn.
+            <div style={{ background: "#4ade8022", border: "1px solid #4ade80", borderRadius: 6, padding: "6px 10px", marginBottom: 10 }}>
+              <div style={{ color: "#4ade80", fontSize: 12 }}>✓ Actions applied for this turn.</div>
+              <button onClick={() => setWeavingMode("weave")} style={{ ...styles.btnSm, borderColor: "#4ade80", color: "#4ade80", marginTop: 8, width: "100%" }}>
+                ✦ Now Attempt a Weave
+              </button>
             </div>
           )}
           {actionsApplied && ecePending && (
@@ -2616,13 +2601,13 @@ function RoundIntroOverlay({ round, rc, coefficients, prevCoefficients, prevUsag
     const displayDelta = isBoost ? delta : -delta;
     let explanation = "";
     if (pct === null || pct === undefined) {
-      explanation = "No usage data from last round — staying at base.";
+      explanation = "No usage data — coefficient unchanged from last round.";
     } else if (pct === 0) {
-      explanation = `${res} was not spent at all (0%) — strong neglect bonus applied. Unused resources get weighted more heavily next round.`;
+      explanation = `${res} was not spent at all (0%) — strong neglect bonus. Coefficient pushed further from base.`;
     } else if (pct > 50) {
-      explanation = `${res} was heavily used (${pct}%) — ${isBoost ? "boost weakened" : "drag weakened"} via overuse penalty.`;
+      explanation = `${res} was heavily used (${pct}%) — overuse penalty. Coefficient pulled toward base.`;
     } else if (pct < 50) {
-      explanation = `${res} was lightly used (${pct}%) — ${isBoost ? "boost increased" : "drag increased"} via neglect bonus.`;
+      explanation = `${res} was lightly used (${pct}%) — neglect bonus. Coefficient pushed further from base.`;
     } else {
       explanation = `${res} usage was exactly 50% — minimal change.`;
     }
