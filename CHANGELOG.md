@@ -4,7 +4,7 @@
 ### Formula
 - Changed when/how the app references the current total and total usage of resources so that coefficients are updated correctly based on correct data.
 
-## UI Improvements
+### UI Improvements
 - Adjusted the left-side panel to be wider to better accomodate the player cards.
 - Made player cards easier to navigate and read.
 - Removed the coefficient dropdown in the upper-right in favor of a smaller list of all coefficients that are always visible, but small enough to not clutter the page.
