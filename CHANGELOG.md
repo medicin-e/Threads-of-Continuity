@@ -1,5 +1,16 @@
 # CHANGELOG — Threads of Continuity Digital Tracker
 
+## v0.8.0 - 2026-06-04
+### Formula
+- Changed when/how the app references the current total and total usage of resources so that coefficients are updated correctly based on correct data.
+
+## UI Improvements
+- Adjusted the left-side panel to be wider to better accomodate the player cards.
+- Made player cards easier to navigate and read.
+- Removed the coefficient dropdown in the upper-right in favor of a smaller list of all coefficients that are always visible, but small enough to not clutter the page.
+
+---
+
 ## v0.7.1 — 2026-06-03
 ### Balance & Formula
 - **Base drag** in weaving: `baseDrag = 0.5 + (RC / 100)` — no free weaves at 0 DR + 0 QR
