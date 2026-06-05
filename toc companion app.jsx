@@ -187,12 +187,12 @@ function Tag({ children, color }) {
 function ResourcePip({ type, value, onChange, mini }) {
   const color = RESOURCE_COLORS[type] || "#aaa";
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: mini ? 4 : 6 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: mini ? 6 : 8 }}>
       <span style={{ color, fontWeight: 700, fontSize: mini ? 11 : 13, minWidth: 28 }}>{type}</span>
       {onChange ? (
         <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
           <button onClick={() => onChange(type, -1)} style={btnSmStyle("#333", "#666")}>−</button>
-          <span style={{ color: "#eee", fontWeight: 700, minWidth: 24, textAlign: "center", fontSize: mini ? 13 : 16 }}>{value}</span>
+          <span style={{ color: "#eee", fontWeight: 700, minWidth: 30, textAlign: "center", fontSize: mini ? 13 : 16 }}>{value}</span>
           <button onClick={() => onChange(type, 1)} style={btnSmStyle("#333", "#666")}>+</button>
         </div>
       ) : (
@@ -207,8 +207,8 @@ const btnSmStyle = (bg, border) => ({
   border: `1px solid ${border}`,
   color: "#ccc",
   borderRadius: 3,
-  width: 22,
-  height: 22,
+  width: 28,
+  height: 28,
   cursor: "pointer",
   fontSize: 14,
   lineHeight: "20px",
@@ -374,6 +374,16 @@ export default function App() {
     } else if (newDR >= 10) {
       msgs.push(`DR is ${newDR} — watch out for chaos rolls above ${ece10Threshold}.`);
     }
+
+    // QR graduated weaving penalty notification
+    const playerQRFinal = (patch.QR ?? p.QR);
+    let qrPenaltyNote = "";
+    if (playerQRFinal >= 19) qrPenaltyNote = "QR 19+ → −20% weave penalty active";
+    else if (playerQRFinal >= 16) qrPenaltyNote = `QR ${playerQRFinal} → −15% weave penalty active`;
+    else if (playerQRFinal >= 13) qrPenaltyNote = `QR ${playerQRFinal} → −10% weave penalty active`;
+    else if (playerQRFinal >= 10) qrPenaltyNote = `QR ${playerQRFinal} → −6% weave penalty active`;
+    else if (playerQRFinal >= 7) qrPenaltyNote = `QR ${playerQRFinal} → −3% weave penalty active`;
+    if (qrPenaltyNote) msgs.push("⚠ " + qrPenaltyNote);
 
     setState(s => ({
       ...s,
@@ -622,7 +632,17 @@ function resetTransientTurnUi() {
     const baseCoeffsAuto = { alpha: 1.4, beta: 1.1, gamma: 1.0, delta: 1.1, epsilon: 1.15 };
     const coeffMap = [["alpha","TB"],["beta","SN"],["gamma","ToC"],["delta","DR"],["epsilon","QR"]];
     const autoUsage = s.prevResourceUsage || {};
-    const autoPossible = s.prevPossibleUsage || {};
+    let autoPossible = s.prevPossibleUsage || {};
+    // Fallback: if no Merging snapshots were accumulated (e.g. all skipped), compute from current resources
+    const possibleHasData = Object.values(autoPossible).some(v => v > 0);
+    if (!possibleHasData) {
+      autoPossible = {};
+      s.players.forEach(p => {
+        ["ToC","DR","SN","TB","QR"].forEach(r => {
+          autoPossible[r] = (autoPossible[r] || 0) + (p[r] || 0);
+        });
+      });
+    }
     const newCoeffs = {};
     coeffMap.forEach(([coeff, res]) => {
       const used = autoUsage[res] || 0;
@@ -1152,7 +1172,14 @@ function nextPhase() {
           <Tag color="#60a5fa">Round {state.round}</Tag>
           <Tag color="#fbbf24">ToRST: {calcToRST(state.rc).toFixed(2)}</Tag>
           {state.ecePending && <Tag color="#f87171">⚠ ECE PENDING</Tag>}
-          <CoeffDropdown coefficients={state.coefficients} />
+          <span style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              {[["alpha","TB","#a78bfa"],["beta","SN","#60a5fa"],["gamma","ToC","#4ade80"],["delta","DR","#f87171"],["epsilon","QR","#fbbf24"]].map(([k,res,color]) => (
+                <span key={k} style={{ fontSize: 11 }}>
+                  <span style={{ color, fontWeight: 700 }}>{res}</span>
+                  <span style={{ color: "#64748b" }}> {state.coefficients[k].toFixed(2)}</span>
+                </span>
+              ))}
+            </span>
         </div>
       </div>
 
@@ -1464,7 +1491,7 @@ function PlayerCard({ player, isActive, onChangeResource }) {
           )}
         </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3px 12px" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         {["ToC", "DR", "SN", "QR", "TB"].map(res => (
           <ResourcePip key={res} type={res} value={player[res]} onChange={onChangeResource} mini />
         ))}
@@ -1715,7 +1742,7 @@ function MergingPanel({ player, players, pnBuyType, setPnBuyType, onBuyPN, onUpg
       {tab === "sabotage" && (
         <div>
           <div style={{ color: "#64748b", fontSize: 12, marginBottom: 10 }}>
-            Spend 3 DR or 5 ToC and roll d6. On an even number (2,4,6): target PN output is halved for 1 round and you gain half the lost resources.
+            Spend 3 DR and roll d6. On an even number (2,4,6): target PN output is halved for 1 round and you gain half the lost resources.
           </div>
           <div style={styles.label}>Target Player</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
@@ -2804,7 +2831,7 @@ const styles = {
   },
   body: {
     display: "grid",
-    gridTemplateColumns: "220px 1fr 220px",
+    gridTemplateColumns: "280px 1fr 240px",
     gap: 0,
     height: "calc(100vh - 50px)",
   },
