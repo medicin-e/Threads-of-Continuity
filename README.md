@@ -1,27 +1,39 @@
 # Threads of Continuity
-## Objective
-The objective of Threads of Continuity is to be the first player to weave three Tapestries of Reality. The game, though a competitive experience, will require working with your competitors to steer the game in a certain direction, for you cannot do it alone. Reality is slowly collapsing, and you must try to be the first one out of it by beating your opponents. 
 
-Every action that each player makes will affect all players in the subsequent rounds. Maybe you want to sabotage your opponents, or maybe you need to form a temporary alliance to get what you want. Maybe you'll change the rules and win diplomatically. The universe is yours to shape how you wish, but no matter what you do, you must get out before it's all gone.
+## Introduction
+Threads of Continuity is a competitive simulation and resource-management game set in a collapsing reality, where players race to escape while managing evolving resource systems, navigating alliances and sabotage, and rewriting the rules of the game itself.
 
-## Companion App
-Though the game can technically be played without the companion app, it is highly recommended that you use it. There are many complicated rules and formulas that are used in the game, and taking the time to go through each formula at its proper time can be very time consuming and tedious. The companion app is designed to make the game as easy as possible to play, and it will help you keep track of all of the rules, calculations, resources, and more. It is not a digital version of the game, but rather a sort-of digital assistant that will allow you to focus on the more social aspects of the game while it takes care of the more technical aspects. Again, if you wish to do it all by hand, go for it! All formulas and rules are detailed in the official rulebook.
+## Overview
+Players will have to manage their resources, be mindful of the changing landscape of the game state, and work together with other players to escape. The catch is that only one person will escape, leaving the others behind. Everyone's actions will have an impact on the game—whether you like it or not.
 
-The companion app was vibe coded with Claude doing the heavy lifting, written in JavaScript. I'm not a programmer or UI designer and I'm not pretending to be one. I'm a guy that came up with an idea for a game, spent hours writing out the rules and formulas, put it all together, then realized that I needed an app to make it easier to play. If you don't like that, then don't play, no hard feelings. I did all the creative work as it pertains to the game itself, the app is all Claude, fed with my rules, formulas, and tweaks. I also did all the QC testing on the app as well.
+Players have at their disposal several mechanics that they will need to use to their advantage in order to escape. Mechanics such as a dynamically changing game state based on player actions, a resource management system that evolves as the game progresses, a sabotage system, a systematic approach players can use to change any rule of the game they want to, and more.
 
-## Game Rule Change Procedure
-I'm not going to detail every single rule in the Readme here, but I did want to specifically address the Game Rule Change Procedure (GRCP) because it's one of the most unique mechanics in the game. The GRCP is a 6-step procedure in the game that allows any player during their turn to propose a change to the rules of the game. *Any* rule. Literally any rule in the entire rulebook can be changed if the GRCP is followed and approved to the end of its process. The entire 6-step process may seem like a lot, and you may be inclined to think that it's frustrating or tedious. Good. That's the point. All of the 6 steps were intentionally designed they way they are. Have fun.
+## What kind of game is this?
+Threads of Continuity is a simulation and resource management game at its core, but it deliberately allows mutation and manipulation of the game state in a way that other games don’t.
 
-## Work in Progress
-The game is a work in progress. There is a lot to balance, tweak, and improve. Luckily, this is slightly mitigated by the GRCP, but I obviously don't want players to have to pass the same GRCP every playthrough because of a bad rule. With so many systems and mechanics, it can be difficult to see how it all balances together in just a few playthroughs.
+Threads of Continuity was designed to be a game that becomes whatever the players make of it. Foundationally though, there are many formulas, systems, and rules that lie beneath the surface of the game that players must understand to be able to play it to its fullest—that said, any of those rules can be changed through the GRCP system: an intentional governance system with 6 stages that allow players to negotiate and build out rule changes as the game progresses. Players can even rewrite rules that can fundamentally change or even break the game; nothing is off limits.
 
-That's all to say:
-I'm always looking for feedback on things that can be changed or adjusted. I can't promise that I'll agree to every change, but I can promise that I'm happy to hear any feedback you have.
+Maybe you want everyone to be able to escape and make the game completely cooperative. Maybe you want to completely change the win conditions. Maybe you want to change one of the key formulas for tracking resource coefficients. Maybe one of those rules will put you in such a bind that you can’t escape at all!
 
-## Closing Thoughts
-This game is not for everyone. It's okay if you just don't like it. It's convoluted, complex, oftentimes it's needlessly tedious. I get all that. I made it that way on purpose because that's the kind of game I like playing and thinking through. If you don't, again, no hard feelings.
+## What makes this game different?
+#### Three things that set Threads of Continuity apart:
+1. The GRCP/rules-governance layer. It's unlike anything I've seen in a game before. The GRCP layer allows players to rewrite the rules of the game through a structured governance process. This process can radically change how the game is played. It can be used as a tool or a weapon.
+2. The resource management layer. It's so much more than just keeping track of resources you have. You have to be conscientious of your own resources and the resources of other players, as well as how much or how little everyone is spending. Depending on each player's resources, the weight—or importance—of each resource will change.
+3. The social layer. Bribes, sabotage, alliances, trading are all part of the game, and may be required to get what you want. Or maybe you'll lie about it all...
 
-Whether you like it or not, I'd love to hear your thoughts.
+## Current Project Status
+Right now, I consider the game to be in beta. It's mostly fleshed out, but there are still some systems and balancing issues that I want to iron out.
 
-Thanks,
-Medicine---
+Regarding the app, it’s mostly done and is faithful to the rules and systems. I've addressed most of the bugs, but I'm sure there are still some weird ones in there.
+
+The app is extremely useful for tracking resources, coefficients, game states, and other important information—and for doing all of that math automatically as you go—but it is not a total digital replacement for the game. It cannot handle most GRCPs, for example, and you will need to manually keep track of some of the deeper rule changes yourself. It can do a good number of the simpler ones, though.
+
+Currently, I'm working on building out a 1040EZ-like form that players can use to keep track of everything, but in an analog format. Generally, I prefer the analog worksheet over the digital version; I wanted this game to be very social, but I understand the limitations that come with having a game with a lot of formulas and data to keep track of and update in real time, which is why I made the app. 
+
+That said, I want to make this worksheet so that players can have the option to not use a computer during the game at all, and can use the worksheet to keep track of everything, with the idea that the worksheet will walk players through the process of keeping track of everything, recalculating coefficients, game states, etc. in an easy to understand and follow way—like a 1040EZ form you would use to file your taxes.
+
+## Feedback
+Any and all feedback is welcome and appreciated. I want to know how the game plays for you, how you feel about it, what you like, what you don’t like, what you want to see.
+
+I want to know what are the challenges, the things that are hard to understand, the things that are confusing, the things that are frustrating, the things that are fun.
+I want to know what feels unbalanced, what feels too easy, what feels too hard.
